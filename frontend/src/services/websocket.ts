@@ -1,23 +1,28 @@
+import { env } from '../config/env';
 import { Message, MessageType } from '../types/websocket';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
-  private url: string = '';
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectTimeout: number = 1000;
+  private heartbeatInterval: number = 30000;
+  private heartbeatTimer?: NodeJS.Timeout;
 
   private messageHandlers: ((message: Message) => void)[] = [];
   private statusHandlers: ((connected: boolean) => void)[] = [];
   private errorHandlers: ((error: string) => void)[] = [];
 
-  constructor(baseUrl: string) {
-    this.url = baseUrl;
-  }
+  constructor(private authToken?: string) {}
 
   connect(): void {
     try {
-      this.ws = new WebSocket(this.url);
+      const url = new URL(env.WEBSOCKET_URL);
+      if (this.authToken) {
+        url.searchParams.append('token', this.authToken);
+      }
+
+      this.ws = new WebSocket(url.toString());
       this.setupEventListeners();
     } catch (error) {
       this.handleError('Failed to establish WebSocket connection');
@@ -30,11 +35,13 @@ export class WebSocketService {
     this.ws.onopen = () => {
       console.log('WebSocket connection established');
       this.reconnectAttempts = 0;
+      this.startHeartbeat();
       this.notifyStatusChange(true);
     };
 
     this.ws.onclose = () => {
       console.log('WebSocket connection closed');
+      this.stopHeartbeat();
       this.notifyStatusChange(false);
       this.attemptReconnect();
     };
@@ -47,12 +54,33 @@ export class WebSocketService {
     this.ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as Message;
-        this.notifyMessageReceived(message);
+        if (message.type === 'ping') {
+          this.sendPong();
+        } else {
+          this.notifyMessageReceived(message);
+        }
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);
         this.handleError('Invalid message format');
       }
     };
+  }
+
+  private startHeartbeat(): void {
+    this.heartbeatTimer = setInterval(() => {
+      this.sendMessage('ping', null);
+    }, this.heartbeatInterval);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
+
+  private sendPong(): void {
+    this.sendMessage('pong', null);
   }
 
   private attemptReconnect(): void {
@@ -70,13 +98,14 @@ export class WebSocketService {
   }
 
   disconnect(): void {
+    this.stopHeartbeat();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
   }
 
-  sendMessage(type: MessageType, data: any, roomId: string): void {
+  sendMessage(type: MessageType, data: any, roomId?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handleError('WebSocket is not connected');
       return;
@@ -86,7 +115,7 @@ export class WebSocketService {
       type,
       data,
       roomId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now(),
     };
 
     try {
@@ -119,6 +148,9 @@ export class WebSocketService {
   }
 
   private notifyMessageReceived(message: Message): void {
+    if (env.DEBUG_MODE) {
+      console.log('Received message:', message);
+    }
     this.messageHandlers.forEach(handler => handler(message));
   }
 
@@ -127,6 +159,9 @@ export class WebSocketService {
   }
 
   private handleError(error: string): void {
+    if (env.DEBUG_MODE) {
+      console.error('WebSocket error:', error);
+    }
     this.errorHandlers.forEach(handler => handler(error));
   }
 } 

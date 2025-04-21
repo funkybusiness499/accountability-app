@@ -1,4 +1,4 @@
-export type MessageType = 'presence' | 'chat' | 'task' | 'notification';
+export type MessageType = 'presence' | 'chat' | 'task' | 'notification' | 'ping' | 'pong';
 
 export interface User {
   id: string;
@@ -7,10 +7,10 @@ export interface User {
 }
 
 export interface Message {
-  id: string;
+  id?: string;
   type: MessageType;
-  roomId: string;
-  senderId: string;
+  roomId?: string;
+  senderId?: string;
   data: any;
   timestamp: number;
 }
