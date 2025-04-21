@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Accountability App Frontend
+
+A modern web application built with Next.js, TypeScript, and Tailwind CSS that provides real-time accountability tracking features through WebSocket communication.
+
+## Features
+
+- Real-time chat functionality
+- WebSocket-based communication
+- Room-based messaging system
+- Modern, responsive UI with Tailwind CSS
+- Type-safe development with TypeScript
+
+## Tech Stack
+
+- **Framework**: Next.js 14.1.0
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **State Management**: React Context
+- **Real-time Communication**: WebSocket
+
+## Project Structure
+
+```
+frontend/
+├── src/
+│   ├── app/              # Next.js app directory
+│   ├── components/       # React components
+│   │   └── Chat.tsx     # Chat component
+│   ├── contexts/        # React contexts
+│   │   └── WebSocketContext.tsx
+│   ├── services/        # Service classes
+│   │   └── websocket.ts # WebSocket service
+│   └── types/           # TypeScript types
+│       └── websocket.ts # WebSocket types
+├── public/              # Static files
+└── tailwind.config.js   # Tailwind configuration
+```
 
 ## Getting Started
 
-First, run the development server:
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+2. **Set Environment Variables**
+   Create a `.env.local` file in the root directory:
+   ```env
+   NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:8080/ws
+   ```
+
+3. **Run Development Server**
+   ```bash
+   npm run dev
+   ```
+   The application will be available at http://localhost:3000
+
+4. **Build for Production**
+   ```bash
+   npm run build
+   npm start
+   ```
+
+## WebSocket Integration
+
+The application uses a custom WebSocket implementation with the following features:
+
+- Automatic reconnection
+- Room-based messaging
+- Type-safe message handling
+- Real-time presence updates
+
+### Message Types
+
+- `presence`: Room join/leave events
+- `chat`: Text messages
+- `task`: Task-related updates
+- `notification`: System notifications
+
+## Component Usage
+
+### Chat Component
+
+```tsx
+import { Chat } from '@/components/Chat';
+
+// In your page/component:
+<Chat />
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### WebSocket Context
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```tsx
+import { useWebSocket } from '@/contexts/WebSocketContext';
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+// In your component:
+const { connected, currentRoom, messages, sendMessage } = useWebSocket();
+```
 
-## Learn More
+## Available Scripts
 
-To learn more about Next.js, take a look at the following resources:
+- `npm run dev`: Start development server
+- `npm run build`: Build production application
+- `npm start`: Start production server
+- `npm run lint`: Run ESLint
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Contributing
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Create a feature branch
+2. Make your changes
+3. Run tests and linting
+4. Submit a pull request
 
-## Deploy on Vercel
+## License
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT License
