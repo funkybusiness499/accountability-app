@@ -1,6 +1,8 @@
 import { env } from '../config/env';
 import { Message, MessageType } from '../types/websocket';
 import { AuthService } from './auth';
+import { RateLimiter } from './rateLimiter';
+import { MessageRateLimiter } from './messageRateLimiter';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
@@ -10,6 +12,8 @@ export class WebSocketService {
   private heartbeatInterval: number = 30000;
   private heartbeatTimer?: NodeJS.Timeout;
   private authService: AuthService;
+  private connectionLimiter: RateLimiter;
+  private messageLimiter: MessageRateLimiter;
 
   private messageHandlers: ((message: Message) => void)[] = [];
   private statusHandlers: ((connected: boolean) => void)[] = [];
@@ -17,10 +21,22 @@ export class WebSocketService {
 
   constructor() {
     this.authService = new AuthService();
+    this.connectionLimiter = new RateLimiter('websocket_connection', {
+      maxAttempts: 5,
+      timeWindow: 60000, // 1 minute
+      initialDelay: 1000, // 1 second
+      maxDelay: 32000, // 32 seconds
+    });
+    this.messageLimiter = new MessageRateLimiter(60, 1, 1000);
   }
 
   async connect(): Promise<void> {
     try {
+      if (!this.connectionLimiter.canAttempt()) {
+        const delay = this.connectionLimiter.getNextAttemptDelay();
+        throw new Error(`Rate limited. Try again in ${Math.ceil(delay / 1000)} seconds`);
+      }
+
       if (!this.authService.isAuthenticated()) {
         throw new Error('Authentication required');
       }
@@ -36,6 +52,7 @@ export class WebSocketService {
       this.ws = new WebSocket(url.toString());
       this.setupEventListeners();
     } catch (error) {
+      this.connectionLimiter.recordAttempt(false);
       this.handleError(error instanceof Error ? error.message : 'Failed to establish WebSocket connection');
     }
   }
@@ -45,6 +62,7 @@ export class WebSocketService {
 
     this.ws.onopen = () => {
       console.log('WebSocket connection established');
+      this.connectionLimiter.recordAttempt(true);
       this.reconnectAttempts = 0;
       this.startHeartbeat();
       this.notifyStatusChange(true);
@@ -59,6 +77,7 @@ export class WebSocketService {
 
     this.ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      this.connectionLimiter.recordAttempt(false);
       this.handleError('WebSocket connection error');
     };
 
@@ -95,8 +114,9 @@ export class WebSocketService {
   }
 
   private async attemptReconnect(): Promise<void> {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.handleError('Maximum reconnection attempts reached');
+    if (!this.connectionLimiter.canAttempt()) {
+      const delay = this.connectionLimiter.getNextAttemptDelay();
+      this.handleError(`Rate limited. Try again in ${Math.ceil(delay / 1000)} seconds`);
       return;
     }
 
@@ -105,12 +125,9 @@ export class WebSocketService {
       return;
     }
 
-    this.reconnectAttempts++;
-    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
     setTimeout(() => {
       this.connect();
-    }, this.reconnectTimeout * this.reconnectAttempts);
+    }, this.connectionLimiter.getNextAttemptDelay());
   }
 
   disconnect(): void {
@@ -127,6 +144,12 @@ export class WebSocketService {
       return;
     }
 
+    if (!this.messageLimiter.canSendMessage()) {
+      const waitTime = this.messageLimiter.getTimeUntilNextMessage();
+      this.handleError(`Message rate limited. Try again in ${Math.ceil(waitTime / 1000)} seconds`);
+      return;
+    }
+
     const message = {
       type,
       data,
@@ -136,6 +159,7 @@ export class WebSocketService {
 
     try {
       this.ws.send(JSON.stringify(message));
+      this.messageLimiter.consumeToken();
     } catch (error) {
       console.error('Failed to send message:', error);
       this.handleError('Failed to send message');
