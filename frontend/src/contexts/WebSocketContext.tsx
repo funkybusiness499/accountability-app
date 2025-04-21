@@ -1,96 +1,86 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Message, MessageType, Room, WebSocketContextType, WebSocketState } from '../types/websocket';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { WebSocketService } from '../services/websocket';
+import { RoomService } from '../services/room';
+import { Message, Room, WebSocketContextType, WebSocketState } from '../types/websocket';
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
 
-const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL || 'ws://localhost:8080/ws';
+const initialState: WebSocketState = {
+  connected: false,
+  currentRoom: null,
+  messages: [],
+  error: null,
+};
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const ws = useRef<WebSocket | null>(null);
-  const [state, setState] = useState<WebSocketState>({
-    connected: false,
-    currentRoom: null,
-    messages: [],
-    error: null,
-  });
+  const [state, setState] = useState<WebSocketState>(initialState);
+  const [wsService] = useState(() => new WebSocketService());
+  const [roomService] = useState(() => new RoomService());
+
+  useEffect(() => {
+    const handleMessage = (message: Message) => {
+      setState(prev => ({
+        ...prev,
+        messages: [...prev.messages, message],
+      }));
+    };
+
+    const handleStatus = (connected: boolean) => {
+      setState(prev => ({ ...prev, connected, error: null }));
+    };
+
+    const handleError = (error: string) => {
+      setState(prev => ({ ...prev, error }));
+    };
+
+    wsService.onMessage(handleMessage);
+    wsService.onStatusChange(handleStatus);
+    wsService.onError(handleError);
+
+    return () => {
+      wsService.disconnect();
+    };
+  }, [wsService]);
 
   const connect = () => {
-    try {
-      ws.current = new WebSocket(WEBSOCKET_URL);
-      
-      ws.current.onopen = () => {
-        setState(prev => ({ ...prev, connected: true, error: null }));
-      };
-
-      ws.current.onclose = () => {
-        setState(prev => ({ ...prev, connected: false }));
-      };
-
-      ws.current.onerror = (error) => {
-        setState(prev => ({ ...prev, error: 'WebSocket connection error' }));
-      };
-
-      ws.current.onmessage = (event) => {
-        try {
-          const message: Message = JSON.parse(event.data);
-          setState(prev => ({
-            ...prev,
-            messages: [...prev.messages, message],
-          }));
-        } catch (error) {
-          setState(prev => ({ ...prev, error: 'Invalid message format' }));
-        }
-      };
-    } catch (error) {
-      setState(prev => ({ ...prev, error: 'Failed to connect to WebSocket' }));
-    }
+    wsService.connect();
   };
 
   const disconnect = () => {
-    if (ws.current) {
-      ws.current.close();
-      ws.current = null;
-    }
+    wsService.disconnect();
+    setState(initialState);
   };
 
-  const joinRoom = (room: Room) => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      const message = {
-        type: 'presence' as MessageType,
-        data: { action: 'join', roomId: room.id }
-      };
-      ws.current.send(JSON.stringify(message));
+  const joinRoom = async (room: Room) => {
+    try {
+      await roomService.joinRoom(room.id);
+      wsService.sendMessage('presence', { action: 'join', roomId: room.id });
       setState(prev => ({ ...prev, currentRoom: room }));
+    } catch (error) {
+      setState(prev => ({ ...prev, error: 'Failed to join room' }));
     }
   };
 
-  const leaveRoom = () => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN && state.currentRoom) {
-      const message = {
-        type: 'presence' as MessageType,
-        data: { action: 'leave', roomId: state.currentRoom.id }
-      };
-      ws.current.send(JSON.stringify(message));
+  const leaveRoom = async () => {
+    if (!state.currentRoom) return;
+
+    try {
+      await roomService.leaveRoom(state.currentRoom.id);
+      wsService.sendMessage('presence', { action: 'leave', roomId: state.currentRoom.id });
       setState(prev => ({ ...prev, currentRoom: null }));
+    } catch (error) {
+      setState(prev => ({ ...prev, error: 'Failed to leave room' }));
     }
   };
 
-  const sendMessage = (type: MessageType, data: any) => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN && state.currentRoom) {
-      const message = {
-        type,
-        roomId: state.currentRoom.id,
-        data
-      };
-      ws.current.send(JSON.stringify(message));
+  const sendMessage = (type: Message['type'], data: any) => {
+    if (!state.currentRoom) {
+      setState(prev => ({ ...prev, error: 'Not connected to any room' }));
+      return;
     }
-  };
 
-  useEffect(() => {
-    return () => {
-      disconnect();
-    };
-  }, []);
+    wsService.sendMessage(type, data, state.currentRoom.id);
+  };
 
   const value: WebSocketContextType = {
     ...state,
