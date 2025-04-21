@@ -25,7 +25,7 @@ go.work
 
 # Environment files
 .env
-*.env
+.env.local
 
 # OS generated files
 .DS_Store
@@ -36,9 +36,14 @@ go.work
 ehthumbs.db
 Thumbs.db
 
-# Binary output directories
+# Generated files
+gen/
+*.pb.go
+*.pb.gw.go
+*.swagger.json
+
+# Binary output directory
 bin/
-dist/
 
 # Logs
 *.log
