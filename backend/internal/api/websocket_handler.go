@@ -6,10 +6,12 @@ import (
 	"strconv"
 
 	"github.com/ayush/accountability-app/backend/internal/config"
+	"github.com/ayush/accountability-app/backend/internal/logger"
 	ws "github.com/ayush/accountability-app/backend/internal/websocket"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 // WSHandler handles WebSocket connections
@@ -22,12 +24,18 @@ var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Note: In production, implement proper origin checking
+		// Note: In production, implement proper origin checking
+		logger.Debug("Checking WebSocket origin",
+			zap.String("origin", r.Header.Get("Origin")))
+		return true
 	},
 }
 
 // NewWSHandler creates a new WebSocket handler
 func NewWSHandler(config *config.WebSocketConfig) *WSHandler {
+	logger.Info("Creating new WebSocket handler",
+		zap.Strings("allowed_origins", config.AllowedOrigins))
+
 	hub := ws.NewHub()
 	go hub.Run()
 	return &WSHandler{
@@ -52,21 +60,34 @@ func NewWSHandler(config *config.WebSocketConfig) *WSHandler {
 func (h *WSHandler) HandleWebSocket(c *gin.Context) {
 	roomID := c.Query("room_id")
 	if roomID == "" {
+		logger.Warn("WebSocket connection attempt without room_id")
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "room_id is required"})
 		return
 	}
 
 	userIDStr := c.Query("user_id")
 	if userIDStr == "" {
+		logger.Warn("WebSocket connection attempt without user_id",
+			zap.String("room_id", roomID))
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "user_id is required"})
 		return
 	}
 
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
 	if err != nil {
+		logger.Warn("Invalid user_id format in WebSocket connection attempt",
+			zap.String("room_id", roomID),
+			zap.String("user_id_str", userIDStr),
+			zap.Error(err))
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid user_id format"})
 		return
 	}
+
+	logger.Info("WebSocket connection attempt",
+		zap.String("room_id", roomID),
+		zap.Uint64("user_id", userID),
+		zap.String("remote_addr", c.Request.RemoteAddr),
+		zap.String("origin", c.Request.Header.Get("Origin")))
 
 	// Check origin if configured
 	if len(h.config.AllowedOrigins) > 0 {
@@ -79,6 +100,11 @@ func (h *WSHandler) HandleWebSocket(c *gin.Context) {
 			}
 		}
 		if !allowed {
+			logger.Warn("WebSocket connection rejected due to unauthorized origin",
+				zap.String("origin", origin),
+				zap.String("room_id", roomID),
+				zap.Uint64("user_id", userID),
+				zap.Strings("allowed_origins", h.config.AllowedOrigins))
 			c.JSON(http.StatusForbidden, ErrorResponse{Error: "origin not allowed"})
 			return
 		}
@@ -86,9 +112,18 @@ func (h *WSHandler) HandleWebSocket(c *gin.Context) {
 
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		logger.Error("Failed to upgrade WebSocket connection",
+			zap.Error(err),
+			zap.String("room_id", roomID),
+			zap.Uint64("user_id", userID))
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to upgrade connection"})
 		return
 	}
+
+	logger.Info("WebSocket connection established",
+		zap.String("room_id", roomID),
+		zap.Uint64("user_id", userID),
+		zap.String("remote_addr", c.Request.RemoteAddr))
 
 	client := ws.NewClient(h.hub, conn, roomID, uint(userID))
 	h.hub.Register(client)
@@ -112,11 +147,16 @@ func (h *WSHandler) HandleWebSocket(c *gin.Context) {
 func (h *WSHandler) GetRoomParticipants(c *gin.Context) {
 	roomID := c.Param("room_id")
 	if roomID == "" {
+		logger.Warn("Room participants request without room_id")
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "room_id is required"})
 		return
 	}
 
 	count := h.hub.GetClientsInRoom(roomID)
+	logger.Debug("Retrieved room participants count",
+		zap.String("room_id", roomID),
+		zap.Int("count", count))
+
 	c.JSON(http.StatusOK, WSParticipantsResponse{Count: count})
 }
 
