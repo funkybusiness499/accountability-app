@@ -1,5 +1,6 @@
 import { env } from '../config/env';
 import { Message, MessageType } from '../types/websocket';
+import { AuthService } from './auth';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
@@ -8,24 +9,34 @@ export class WebSocketService {
   private reconnectTimeout: number = 1000;
   private heartbeatInterval: number = 30000;
   private heartbeatTimer?: NodeJS.Timeout;
+  private authService: AuthService;
 
   private messageHandlers: ((message: Message) => void)[] = [];
   private statusHandlers: ((connected: boolean) => void)[] = [];
   private errorHandlers: ((error: string) => void)[] = [];
 
-  constructor(private authToken?: string) {}
+  constructor() {
+    this.authService = new AuthService();
+  }
 
-  connect(): void {
+  async connect(): Promise<void> {
     try {
-      const url = new URL(env.WEBSOCKET_URL);
-      if (this.authToken) {
-        url.searchParams.append('token', this.authToken);
+      if (!this.authService.isAuthenticated()) {
+        throw new Error('Authentication required');
       }
+
+      const token = await this.authService.getAccessToken();
+      if (!token) {
+        throw new Error('No valid authentication token');
+      }
+
+      const url = new URL(env.WEBSOCKET_URL);
+      url.searchParams.append('token', token);
 
       this.ws = new WebSocket(url.toString());
       this.setupEventListeners();
     } catch (error) {
-      this.handleError('Failed to establish WebSocket connection');
+      this.handleError(error instanceof Error ? error.message : 'Failed to establish WebSocket connection');
     }
   }
 
@@ -83,9 +94,14 @@ export class WebSocketService {
     this.sendMessage('pong', null);
   }
 
-  private attemptReconnect(): void {
+  private async attemptReconnect(): Promise<void> {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.handleError('Maximum reconnection attempts reached');
+      return;
+    }
+
+    if (!this.authService.isAuthenticated()) {
+      this.handleError('Authentication required');
       return;
     }
 

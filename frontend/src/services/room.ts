@@ -1,18 +1,23 @@
 import { Room, User } from '../types/websocket';
 import { env } from '../config/env';
+import { AuthService } from './auth';
 
 export class RoomService {
   private baseUrl: string;
+  private authService: AuthService;
 
   constructor() {
     this.baseUrl = `${env.API_URL}/rooms`;
+    this.authService = new AuthService();
   }
 
   async createRoom(name: string): Promise<Room> {
+    const headers = await this.authService.getAuthHeaders();
     const response = await fetch(this.baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...headers,
       },
       body: JSON.stringify({ name }),
     });
@@ -25,7 +30,10 @@ export class RoomService {
   }
 
   async getRooms(): Promise<Room[]> {
-    const response = await fetch(this.baseUrl);
+    const headers = await this.authService.getAuthHeaders();
+    const response = await fetch(this.baseUrl, {
+      headers,
+    });
     
     if (!response.ok) {
       throw new Error('Failed to fetch rooms');
@@ -35,7 +43,10 @@ export class RoomService {
   }
 
   async getRoom(roomId: string): Promise<Room> {
-    const response = await fetch(`${this.baseUrl}/${roomId}`);
+    const headers = await this.authService.getAuthHeaders();
+    const response = await fetch(`${this.baseUrl}/${roomId}`, {
+      headers,
+    });
     
     if (!response.ok) {
       throw new Error('Failed to fetch room');
@@ -45,7 +56,10 @@ export class RoomService {
   }
 
   async getRoomParticipants(roomId: string): Promise<User[]> {
-    const response = await fetch(`${this.baseUrl}/${roomId}/participants`);
+    const headers = await this.authService.getAuthHeaders();
+    const response = await fetch(`${this.baseUrl}/${roomId}/participants`, {
+      headers,
+    });
     
     if (!response.ok) {
       throw new Error('Failed to fetch room participants');
@@ -55,8 +69,10 @@ export class RoomService {
   }
 
   async joinRoom(roomId: string): Promise<void> {
+    const headers = await this.authService.getAuthHeaders();
     const response = await fetch(`${this.baseUrl}/${roomId}/join`, {
       method: 'POST',
+      headers,
     });
 
     if (!response.ok) {
@@ -65,8 +81,10 @@ export class RoomService {
   }
 
   async leaveRoom(roomId: string): Promise<void> {
+    const headers = await this.authService.getAuthHeaders();
     const response = await fetch(`${this.baseUrl}/${roomId}/leave`, {
       method: 'POST',
+      headers,
     });
 
     if (!response.ok) {
